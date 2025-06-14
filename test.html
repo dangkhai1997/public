@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>WordPress Batch Post Tool</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    textarea, input { width: 100%; margin-bottom: 10px; padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+    button { padding: 10px 20px; font-weight: bold; cursor: pointer; border: none; background: #007bff; color: white; border-radius: 5px; }
+    button:hover { background: #0056b3; }
+    #log { margin-top: 20px; background: #f5f5f5; padding: 10px; max-height: 300px; overflow-y: auto; white-space: pre-line; border-radius: 5px; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+
+<h2>🛠️ WordPress Batch Post Tool</h2>
+
+<label>📋 Danh sách URL WordPress (mỗi dòng 1 URL):</label>
+<textarea id="siteUrls" rows="6">
+https://nieuws.intelnestle.com
+https://news.fusiondigest.com
+https://nieuws.intelnestle.com
+https://sportnieuws.fusiondigest.com
+</textarea>
+
+<label>🔍 Chuỗi tìm kiếm trong URL bài viết:</label>
+<input type="text" id="searchString" value="dk74" />
+
+<label>🗂️ Số lượng tab mỗi batch:</label>
+<input type="number" id="batchSize" value="5" min="1" />
+
+<label>⏱️ Thời gian chờ trước khi đóng tab (ms):</label>
+<input type="number" id="delay" value="5000" min="1000" />
+
+<button onclick="start()">🚀 Bắt đầu xử lý</button>
+
+<pre id="log"></pre>
+
+<script>
+function log(message, color = "black") {
+  const logEl = document.getElementById("log");
+  logEl.innerHTML += `<div style="color:${color}">${message}</div>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function processPostsInBatches(siteUrl, searchString, batchSize, delay) {
+  log(`🔍 Đang xử lý: ${siteUrl}`, "blue");
+  let allPosts = [];
+  let page = 1;
+  const perPage = 100;
+
+  try {
+    while (true) {
+      const response = await fetch(`${siteUrl}/wp-json/wp/v2/posts?per_page=${perPage}&page=${page}&_embed`);
+      if (!response.ok && response.status === 400) break;
+      if (!response.ok) throw new Error(`Lỗi API: ${response.status}`);
+      const posts = await response.json();
+      if (posts.length === 0) break;
+      allPosts = allPosts.concat(posts);
+      page++;
+    }
+
+    const filtered = allPosts.filter(p => p.link.includes(searchString));
+    log(`✅ Tìm thấy ${filtered.length} bài phù hợp ở ${siteUrl}`, "green");
+
+    for (let i = 0; i < filtered.length; i += batchSize) {
+      const batch = filtered.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const batchStart = i + 1;
+      const batchEnd = i + batch.length;
+
+      log(`➡️ [${siteUrl}] Lô ${batchNumber}: mở tab ${batchStart}–${batchEnd} trên tổng ${filtered.length} bài`, "orange");
+
+      const tabs = [];
+      for (const post of batch) {
+        const tab = window.open(post.link, '_blank');
+        tabs.push(tab);
+      }
+
+      await new Promise(r => setTimeout(r, delay));
+
+      log(`✖️ Đóng ${tabs.length} tab...`, "red");
+      for (const tab of tabs) {
+        try {
+          if (tab) tab.close();
+        } catch {}
+      }
+
+      if (i + batchSize < filtered.length) {
+        log(`⏳ Nghỉ 2 giây trước lô tiếp theo...`, "gray");
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    log(`🏁 Hoàn tất ${siteUrl}`, "blue");
+
+  } catch (err) {
+    log(`❌ Lỗi ở ${siteUrl}: ${err.message}`, "red");
+  }
+}
+
+async function start() {
+  document.getElementById("log").innerHTML = "";
+  const urls = document.getElementById("siteUrls").value.trim().split("\n").map(u => u.trim()).filter(u => u);
+  const searchString = document.getElementById("searchString").value.trim();
+  const batchSize = parseInt(document.getElementById("batchSize").value);
+  const delay = parseInt(document.getElementById("delay").value);
+
+  for (const url of urls) {
+    await processPostsInBatches(url, searchString, batchSize, delay);
+  }
+}
+</script>
+
+</body>
+</html>
