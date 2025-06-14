@@ -1,108 +1,116 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8" />
-  <title>Auto Tab Opener</title>
+  <meta charset="UTF-8">
+  <title>WordPress Batch Post Tool</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-    }
-    label, select, input {
-      display: block;
-      margin-top: 10px;
-    }
-    button {
-      margin-top: 20px;
-      padding: 10px 15px;
-      font-size: 16px;
-    }
+    body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    textarea, input { width: 100%; margin-bottom: 10px; padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+    button { padding: 10px 20px; font-weight: bold; cursor: pointer; border: none; background: #007bff; color: white; border-radius: 5px; }
+    button:hover { background: #0056b3; }
+    #log { margin-top: 20px; background: #f5f5f5; padding: 10px; max-height: 300px; overflow-y: auto; white-space: pre-line; border-radius: 5px; border: 1px solid #ccc; }
   </style>
 </head>
 <body>
-  <h2>Mở và đóng bài viết WordPress</h2>
 
-  <label for="siteSelect">Chọn trang:</label>
-  <select id="siteSelect">
-    <option value="https://nieuws.intelnestle.com">nieuws.intelnestle.com</option>
-    <option value="https://news.fusiondigest.com">news.fusiondigest.com</option>
-    <option value="https://sportnieuws.fusiondigest.com">sportnieuws.fusiondigest.com</option>
-  </select>
+<h2>🛠️ WordPress Batch Post Tool</h2>
 
-  <label for="searchString">Chuỗi URL cần chứa (searchString):</label>
-  <input type="text" id="searchString" value="dk74" />
+<label>📋 Danh sách URL WordPress (mỗi dòng 1 URL):</label>
+<textarea id="siteUrls" rows="6">
+https://nieuws.intelnestle.com
+https://news.fusiondigest.com
+https://nieuws.intelnestle.com
+https://sportnieuws.fusiondigest.com
+</textarea>
 
-  <label for="delayTime">Thời gian chờ (giây):</label>
-  <input type="number" id="delayTime" value="5" min="1" />
+<label>🔍 Chuỗi tìm kiếm trong URL bài viết:</label>
+<input type="text" id="searchString" value="dk74" />
 
-  <button id="loadPosts">Tải danh sách bài</button>
-  <button id="start">Mở từng bài & tự đóng</button>
+<label>🗂️ Số lượng tab mỗi batch:</label>
+<input type="number" id="batchSize" value="5" min="1" />
 
-  <p id="status"></p>
+<label>⏱️ Thời gian chờ trước khi đóng tab (ms):</label>
+<input type="number" id="delay" value="5000" min="1000" />
 
-  <script>
-    let filteredPosts = [];
-    let currentIndex = 0;
+<button onclick="start()">🚀 Bắt đầu xử lý</button>
 
-    document.getElementById('loadPosts').onclick = async function () {
-      const site = document.getElementById('siteSelect').value;
-      const search = document.getElementById('searchString').value;
-      const status = document.getElementById('status');
-      filteredPosts = [];
-      currentIndex = 0;
-      status.textContent = "Đang tải bài viết...";
+<pre id="log"></pre>
 
-      let allPosts = [];
-      let page = 1;
-      const perPage = 100;
+<script>
+function log(message, color = "black") {
+  const logEl = document.getElementById("log");
+  logEl.innerHTML += `<div style="color:${color}">${message}</div>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
 
-      try {
-        while (true) {
-          const res = await fetch(`${site}/wp-json/wp/v2/posts?per_page=${perPage}&page=${page}`);
-          if (!res.ok) break;
-          const posts = await res.json();
-          if (posts.length === 0) break;
-          allPosts = allPosts.concat(posts);
-          page++;
-        }
+async function processPostsInBatches(siteUrl, searchString, batchSize, delay) {
+  log(`🔍 Đang xử lý: ${siteUrl}`, "blue");
+  let allPosts = [];
+  let page = 1;
+  const perPage = 100;
 
-        filteredPosts = allPosts.filter(post => post.link.includes(search));
-        status.textContent = `Tìm được ${filteredPosts.length} bài phù hợp. Bấm "Mở từng bài & tự đóng" để bắt đầu.`;
+  try {
+    while (true) {
+      const response = await fetch(`${siteUrl}/wp-json/wp/v2/posts?per_page=${perPage}&page=${page}&_embed`);
+      if (!response.ok && response.status === 400) break;
+      if (!response.ok) throw new Error(`Lỗi API: ${response.status}`);
+      const posts = await response.json();
+      if (posts.length === 0) break;
+      allPosts = allPosts.concat(posts);
+      page++;
+    }
 
-      } catch (e) {
-        status.textContent = "Lỗi khi lấy bài viết: " + e.message;
-      }
-    };
+    const filtered = allPosts.filter(p => p.link.includes(searchString));
+    log(`✅ Tìm thấy ${filtered.length} bài phù hợp ở ${siteUrl}`, "green");
 
-    document.getElementById('start').onclick = function () {
-      const delay = parseInt(document.getElementById('delayTime').value) * 1000;
-      const status = document.getElementById('status');
+    for (let i = 0; i < filtered.length; i += batchSize) {
+      const batch = filtered.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const batchStart = i + 1;
+      const batchEnd = i + batch.length;
 
-      if (filteredPosts.length === 0) {
-        status.textContent = "Chưa có bài viết nào để mở.";
-        return;
-      }
+      log(`➡️ [${siteUrl}] Lô ${batchNumber}: mở tab ${batchStart}–${batchEnd} trên tổng ${filtered.length} bài`, "orange");
 
-      if (currentIndex >= filteredPosts.length) {
-        status.textContent = "Đã hoàn thành tất cả bài viết.";
-        return;
+      const tabs = [];
+      for (const post of batch) {
+        const tab = window.open(post.link, '_blank');
+        tabs.push(tab);
       }
 
-      const post = filteredPosts[currentIndex];
-      const tab = window.open(post.link, '_blank');
+      await new Promise(r => setTimeout(r, delay));
 
-      status.textContent = `Đang mở bài ${currentIndex + 1}/${filteredPosts.length}: ${post.link}`;
-
-      setTimeout(() => {
+      log(`✖️ Đóng ${tabs.length} tab...`, "red");
+      for (const tab of tabs) {
         try {
-          tab.close();
-          status.textContent = `Đã đóng bài ${currentIndex + 1}. Bấm lại để tiếp tục.`;
-          currentIndex++;
-        } catch (e) {
-          status.textContent = "Không thể tự đóng tab. Đóng thủ công.";
-        }
-      }, delay);
-    };
-  </script>
+          if (tab) tab.close();
+        } catch {}
+      }
+
+      if (i + batchSize < filtered.length) {
+        log(`⏳ Nghỉ 2 giây trước lô tiếp theo...`, "gray");
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    log(`🏁 Hoàn tất ${siteUrl}`, "blue");
+
+  } catch (err) {
+    log(`❌ Lỗi ở ${siteUrl}: ${err.message}`, "red");
+  }
+}
+
+async function start() {
+  document.getElementById("log").innerHTML = "";
+  const urls = document.getElementById("siteUrls").value.trim().split("\n").map(u => u.trim()).filter(u => u);
+  const searchString = document.getElementById("searchString").value.trim();
+  const batchSize = parseInt(document.getElementById("batchSize").value);
+  const delay = parseInt(document.getElementById("delay").value);
+
+  for (const url of urls) {
+    await processPostsInBatches(url, searchString, batchSize, delay);
+  }
+}
+</script>
+
 </body>
 </html>
